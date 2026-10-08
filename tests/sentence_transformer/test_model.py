@@ -454,7 +454,7 @@ def test_encode_output_value_none_reports_truncation_per_input(stsb_bert_tiny_mo
     assert isinstance(embeddings, np.ndarray)
     assert embeddings.shape == (len(texts), model.get_embedding_dimension())
     for feature, embedding in zip(features, embeddings):
-        np.testing.assert_allclose(feature["sentence_embedding"].numpy(), embedding, rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(feature["sentence_embedding"].cpu().numpy(), embedding, rtol=1e-5, atol=1e-6)
 
     repeated = model.encode(
         texts,
@@ -470,7 +470,7 @@ def test_encode_output_value_none_reports_truncation_per_input(stsb_bert_tiny_mo
     single_embedding = model.encode(exact_fit)
     assert isinstance(single_embedding, np.ndarray)
     assert single_embedding.shape == (model.get_embedding_dimension(),)
-    np.testing.assert_allclose(single["sentence_embedding"].numpy(), single_embedding, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(single["sentence_embedding"].cpu().numpy(), single_embedding, rtol=1e-5, atol=1e-6)
 
 
 def test_encode_truncation_count_uses_prompt_and_per_call_max_length(stsb_bert_tiny_model) -> None:

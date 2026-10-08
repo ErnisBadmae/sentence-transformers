@@ -46,6 +46,50 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    #         [0.6660, 1.0000, 0.1411],
    #         [0.1046, 0.1411, 1.0000]])
 
+Detecting truncated text inputs
+-------------------------------
+
+On a checkout that includes truncation-count support, ``encode(..., output_value=None)`` returns
+one feature dictionary per input. For the text tokenizer path, each dictionary includes
+``num_truncated_tokens``: zero means tokenization kept the full input, while a positive integer
+is the number of tokens removed from that input. The count includes prompt and special tokens
+that are part of the tokenized sequence. It counts tokens, not documents.
+
+.. code-block:: python
+
+   from sentence_transformers import SentenceTransformer
+
+   model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+   texts = ["A short input.", "A longer input " * 200]
+   features = model.encode(
+       texts,
+       output_value=None,
+       batch_size=2,
+       processing_kwargs={"text": {"max_length": 64}},
+   )
+
+   for text, feature in zip(texts, features):
+       embedding = feature["sentence_embedding"]
+       count = feature.get("num_truncated_tokens")
+       if count is None:
+           print("No truncation count was reported for this input path.")
+       elif count.item() == 0:
+           print("The full tokenized input was kept.")
+       else:
+           print(f"{count.item()} tokens were removed.")
+       print(text[:30], tuple(embedding.shape))
+
+   # The default call still returns only sentence embeddings.
+   embeddings = model.encode(texts)
+   print(embeddings.shape)
+
+``output_value=None`` also returns other features such as token embeddings, so it can use more
+memory than the default ``encode`` call. The count is currently available on the text tokenizer
+path; multimodal processors and other processor types may not report it. A missing key therefore
+means that no count was reported, not that zero tokens were removed. This example describes the
+proposed feature on a checkout containing the change; it does not imply availability in a released
+PyPI version.
+
 Some Sentence Transformer models support inputs beyond text, such as images, audio, or video. Use :attr:`model.modalities <sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities>` and :meth:`model.supports() <sentence_transformers.sentence_transformer.model.SentenceTransformer.supports>` to check modality support. See :doc:`../../input_formats` for accepted representations, metadata, and batching.
 
 The following example loads a multimodal model and computes similarities between text and image embeddings:

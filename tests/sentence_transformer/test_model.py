@@ -413,6 +413,7 @@ def test_prompt_output_value_None(stsb_bert_tiny_model) -> None:
         "input_ids",
         "token_type_ids",
         "attention_mask",
+        "num_truncated_tokens",
         "sentence_embedding",
         "token_embeddings",
         "prompt_length",
@@ -420,6 +421,85 @@ def test_prompt_output_value_None(stsb_bert_tiny_model) -> None:
     }
     assert set(outputs[0].keys()) == expected_keys
     assert set(outputs[1].keys()) == expected_keys
+
+
+def test_encode_output_value_none_reports_truncation_per_input(stsb_bert_tiny_model) -> None:
+    model = stsb_bert_tiny_model
+    tokenizer = model[0].tokenizer
+    exact_fit = "hello world"
+    max_length = len(tokenizer(exact_fit, truncation=False)["input_ids"])
+    texts = ["hello world hello world hello", "hello", exact_fit, "world hello world hello"]
+    expected_counts = [max(0, len(tokenizer(text, truncation=False)["input_ids"]) - max_length) for text in texts]
+    assert expected_counts == [3, 0, 0, 2]
+
+    features = model.encode(
+        texts,
+        batch_size=2,
+        output_value=None,
+        processing_kwargs={"text": {"max_length": max_length}},
+    )
+    assert isinstance(features, list)
+    assert len(features) == len(texts)
+    assert [feature["num_truncated_tokens"].item() for feature in features] == expected_counts
+
+    # The output rows must still map to the original inputs after encode's length sorting.
+    for text, feature, expected_count in zip(texts, features, expected_counts):
+        mask = feature["attention_mask"].bool()
+        actual_ids = feature["input_ids"][mask].tolist()
+        expected_ids = tokenizer(text, truncation=True, max_length=max_length)["input_ids"]
+        assert actual_ids == expected_ids
+        assert feature["num_truncated_tokens"].item() == expected_count
+
+    embeddings = model.encode(texts, batch_size=2, processing_kwargs={"text": {"max_length": max_length}})
+    assert isinstance(embeddings, np.ndarray)
+    assert embeddings.shape == (len(texts), model.get_embedding_dimension())
+    for feature, embedding in zip(features, embeddings):
+        np.testing.assert_allclose(feature["sentence_embedding"].numpy(), embedding, rtol=1e-5, atol=1e-6)
+
+    repeated = model.encode(
+        texts,
+        batch_size=2,
+        output_value=None,
+        processing_kwargs={"text": {"max_length": max_length + 20}},
+    )
+    assert [feature["num_truncated_tokens"].item() for feature in repeated] == [0] * len(texts)
+
+    single = model.encode(exact_fit, output_value=None, processing_kwargs={"text": {"max_length": max_length}})
+    assert isinstance(single, dict)
+    assert single["num_truncated_tokens"].item() == 0
+    single_embedding = model.encode(exact_fit)
+    assert isinstance(single_embedding, np.ndarray)
+    assert single_embedding.shape == (model.get_embedding_dimension(),)
+    np.testing.assert_allclose(single["sentence_embedding"].numpy(), single_embedding, rtol=1e-5, atol=1e-6)
+
+
+def test_encode_truncation_count_uses_prompt_and_per_call_max_length(stsb_bert_tiny_model) -> None:
+    model = stsb_bert_tiny_model
+    tokenizer = model[0].tokenizer
+    prompt = "query: "
+    text = "hello world hello world hello"
+    full_ids = tokenizer(prompt + text, truncation=False)["input_ids"]
+    max_length = len(full_ids) - 2
+
+    feature = model.encode(
+        text,
+        prompt=prompt,
+        output_value=None,
+        processing_kwargs={"text": {"max_length": max_length}},
+    )
+    expected_ids = tokenizer(prompt + text, truncation=True, max_length=max_length)["input_ids"]
+    mask = feature["attention_mask"].bool()
+    assert feature["input_ids"][mask].tolist() == expected_ids
+    assert feature["num_truncated_tokens"].item() == len(full_ids) - max_length == 2
+
+
+def test_encode_truncation_count_is_absent_when_truncation_is_disabled(stsb_bert_tiny_model) -> None:
+    feature = stsb_bert_tiny_model.encode(
+        "hello",
+        output_value=None,
+        processing_kwargs={"text": {"truncation": False}},
+    )
+    assert "num_truncated_tokens" not in feature
 
 
 @pytest.mark.parametrize("has_bos_token", [True, False])

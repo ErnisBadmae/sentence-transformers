@@ -645,6 +645,17 @@ class TestPreprocess:
         )
         assert result["num_truncated_tokens"].tolist() == [full_len - 5]
 
+    def test_preprocess_num_truncated_tokens_preserves_tokenizer_kwargs(self, bert_tiny_transformer):
+        """The untruncated recount must use the same text-tokenizer options as preprocessing."""
+        text = "this is a longer sentence that should get truncated"
+        tokenizer = bert_tiny_transformer.tokenizer
+        full_len = len(tokenizer(text, truncation=False, add_special_tokens=False)["input_ids"])
+        result = bert_tiny_transformer.preprocess(
+            [text],
+            processing_kwargs={"text": {"max_length": 5, "truncation": True, "add_special_tokens": False}},
+        )
+        assert result["num_truncated_tokens"].tolist() == [full_len - 5]
+
     def test_preprocess_num_truncated_tokens_mixed_batch(self, bert_tiny_transformer):
         """Only the row that hit the cap is counted; rows below it stay 0 without a re-tokenization."""
         text = "this is a longer sentence that should get truncated"

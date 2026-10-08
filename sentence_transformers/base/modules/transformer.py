@@ -1422,7 +1422,7 @@ class Transformer(InputModule):
             processor_output["num_videos_per_sample"] = torch.tensor(num_videos_per_sample, dtype=torch.long)
 
         num_truncated_tokens = self._compute_num_truncated_tokens(
-            modality, truncation_texts, processor_output, modality_kwargs, skip=should_flatten
+            modality, truncation_texts, processor_output, modality_kwargs, common_kwargs, skip=should_flatten
         )
         if num_truncated_tokens is not None:
             processor_output["num_truncated_tokens"] = num_truncated_tokens
@@ -2234,6 +2234,7 @@ class Transformer(InputModule):
         texts: list | None,
         processor_output: dict[str, Any],
         modality_kwargs: dict[str, dict[str, Any]],
+        common_kwargs: dict[str, Any],
         skip: bool,
     ) -> torch.Tensor | None:
         """Count, per sample, how many tokens truncation dropped.
@@ -2248,9 +2249,11 @@ class Transformer(InputModule):
         if not isinstance(self.processor, PreTrainedTokenizerBase):
             return None
 
-        text_kwargs = modality_kwargs["text"]
-        truncation = text_kwargs.get("truncation", "longest_first")
-        cap = text_kwargs.get("max_length") or getattr(self.tokenizer, "model_max_length", None)
+        # Match _call_single_modality_processor: common kwargs override text kwargs. Preserve
+        # tokenizer options such as add_special_tokens when counting the untruncated input.
+        tokenizer_kwargs = {**modality_kwargs["text"], **common_kwargs}
+        truncation = tokenizer_kwargs.get("truncation", "longest_first")
+        cap = tokenizer_kwargs.get("max_length") or getattr(self.tokenizer, "model_max_length", None)
         # No truncation / explicit opt-out / no real cap (transformers uses a huge sentinel).
         if not truncation or truncation == "do_not_truncate" or not cap or cap >= 1e12:
             return None
@@ -2262,7 +2265,8 @@ class Transformer(InputModule):
             return counts
 
         subset = [texts[i] for i in candidates.tolist()]
-        full = self.processor(subset, truncation=False, padding=False, return_tensors=None)
+        tokenizer_kwargs.update(truncation=False, padding=False, return_tensors=None)
+        full = self.processor(subset, **tokenizer_kwargs)
         for idx, ids in zip(candidates.tolist(), full["input_ids"]):
             counts[idx] = max(0, len(ids) - cap)
         return counts
